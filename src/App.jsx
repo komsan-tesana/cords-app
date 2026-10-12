@@ -413,6 +413,8 @@ export default function App() {
         <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุด · Ctrl/⌘+Z ย้อนกลับ · Delete ลบช่องที่เลือก</p>
       </section>
 
+      <footer className="version">Cords v{__APP_VERSION__}</footer>
+
       <nav className="transport" aria-label="ควบคุมการเล่น">
         <button className="primary play" onClick={togglePlay} disabled={!total} aria-label={playing ? 'หยุด' : 'เล่นลำดับคอร์ด'}>
           {playing ? <Square size={20} /> : <Play size={20} />}

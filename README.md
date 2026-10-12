@@ -15,4 +15,6 @@ npm run dev
 3. เว็บจะอยู่ที่ https://komsan-tesana.github.io/cords-app/
 
 ทุกครั้งที่แก้โค้ด ให้ทำงานและ commit บน branch `develop` แล้วรัน `npm run deploy` (จาก develop) สคริปต์จะ push develop → merge เข้า `main` → build `docs/` → commit + push `main` แล้วกลับมาที่ develop ให้อัตโนมัติ
+
+ทุกครั้งที่ deploy จะเพิ่มเลข version ใน `package.json` อัตโนมัติ (patch เป็นค่าเริ่มต้น; `npm run deploy -- minor` หรือ `-- major` เพื่อเลื่อนระดับอื่น) และแสดงที่ท้ายหน้าเว็บ
 ถ้าเปลี่ยนชื่อ repo ให้แก้ `base` ใน `vite.config.js` ให้ตรงกัน

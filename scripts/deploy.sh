@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# รันจาก branch develop: push develop → merge เข้า main → build docs/ → push main (GitHub Pages อัปเดตจาก main)
+# รันจาก branch develop: เพิ่มเลข version → push develop → merge เข้า main → build docs/ → push main (GitHub Pages อัปเดตจาก main)
 set -euo pipefail
 
 SRC=develop
@@ -14,6 +14,13 @@ if [ -n "$(git status --porcelain)" ]; then
   echo "มีการแก้ไขที่ยังไม่ได้ commit กรุณา commit ก่อน deploy" >&2
   exit 1
 fi
+
+# เพิ่มเลข version (ค่าเริ่มต้น patch; ใช้ `npm run deploy -- minor|major` ได้) แล้ว commit บน develop
+npm version "${1:-patch}" --no-git-tag-version >/dev/null
+version=$(node -p "require('./package.json').version")
+git add package.json package-lock.json
+git commit -m "Release v$version"
+echo "version: v$version"
 
 # ไม่ว่าจะสำเร็จหรือพัง ให้กลับมาที่ develop เสมอ
 trap 'git checkout -q "$SRC"' EXIT
