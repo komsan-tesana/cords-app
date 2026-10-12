@@ -3,7 +3,7 @@ import { useHotkeys } from 'react-hotkeys-hook'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Check, Copy, Download, GripVertical, Hand, Minus, Play, Plus, Square, Trash2, Undo2 } from 'lucide-react'
+import { Check, Copy, Download, GripVertical, Hand, Minimize2, Maximize2, Minus, Play, Plus, Square, Trash2, Undo2 } from 'lucide-react'
 import { INSTRUMENTS, playChord } from './audio.js'
 import { NOTES, QUALITIES, chordName, mkChord, paletteFor, parseChord, pitchClasses, splitChord } from './music.js'
 import KeyWheel from './components/KeyWheel.jsx'
@@ -34,6 +34,24 @@ const octLabel = (n) => (n === 0 ? '0 (ปกติ)' : n > 0 ? `+${n}` : `${n}`
 const SECTION_PRESETS = ['Intro', 'Verse', 'Pre-Chorus', 'Chorus', 'Bridge', 'Outro']
 const clampBpm = (n) => Math.min(200, Math.max(40, Math.round(n)))
 const qualityLabel = (q) => (q === '' ? 'maj' : q)
+
+function youtubeId(input) {
+  const t = input.trim()
+  if (/^[\w-]{11}$/.test(t)) return t
+  try {
+    const u = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`)
+    const host = u.hostname.replace(/^(www|m|music)\./, '')
+    let id = null
+    if (host === 'youtu.be') id = u.pathname.split('/')[1]
+    else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      const [, kind, rest] = u.pathname.split('/')
+      id = kind === 'watch' ? u.searchParams.get('v') : ['embed', 'shorts', 'live', 'v'].includes(kind) ? rest : null
+    }
+    return id && /^[\w-]{11}$/.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
 
 function ChordButton({ root, q, roman, hotkey, active, onPick }) {
   return (
@@ -76,6 +94,28 @@ export default function App() {
   const [sel, setSel] = useState(null) // ช่องในลำดับที่เลือก { si, ci }
   const [playingIdx, setPlayingIdx] = useState(-1)
   const [copied, setCopied] = useState(false)
+  const [ytUrl, setYtUrl] = usePersistentState('cords-yt-url', '')
+  const ytId = youtubeId(ytUrl)
+  const [ytMini, setYtMini] = usePersistentState('cords-yt-mini', false)
+  const [ytPos, setYtPos] = usePersistentState('cords-yt-pos', null) // ตำแหน่งจอเล็ก { x, y } (px จากมุมซ้ายบน)
+  const ytBox = useRef(null)
+  const ytDrag = useRef(null)
+  const ytDown = (e) => {
+    if (e.target.closest('button')) return
+    const r = ytBox.current.getBoundingClientRect()
+    ytDrag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const ytMove = (e) => {
+    const d = ytDrag.current
+    if (!d) return
+    const r = ytBox.current.getBoundingClientRect()
+    setYtPos({
+      x: Math.min(Math.max(0, e.clientX - d.dx), window.innerWidth - r.width),
+      y: Math.min(Math.max(0, e.clientY - d.dy), window.innerHeight - r.height),
+    })
+  }
+  const ytUp = () => { ytDrag.current = null }
   const timer = useRef(null)
   const idxRef = useRef(0)
   const taps = useRef([])
@@ -233,7 +273,42 @@ export default function App() {
 
   return (
     <main>
-      <h1>Mercury – "Heaven": แกะคอร์ดด้วยหู</h1>
+      <section className={'ytsec' + (ytMini ? ' mini' : '')}>
+        <div className="yt-head">
+          <h2>เพลงอ้างอิงจาก YouTube</h2>
+          <button aria-pressed={ytMini} onClick={() => setYtMini(!ytMini)} aria-label={ytMini ? 'ขยาย' : 'ย่อ'} title={ytMini ? 'ขยาย' : 'ย่อ (เสียงยังเล่นต่อ)'}>
+            {ytMini ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+          </button>
+        </div>
+        <input
+          type="url" className="yt-url" value={ytUrl} placeholder="วางลิงก์ YouTube ที่นี่"
+          aria-label="ลิงก์ YouTube" onChange={(e) => setYtUrl(e.target.value)}
+        />
+        {ytUrl.trim() && !ytId && <p className="hint">ลิงก์ไม่ถูกต้อง</p>}
+        {ytId && (
+          <div
+            ref={ytBox}
+            className={'yt' + (ytMini ? ' float' : '')}
+            style={ytMini && ytPos ? { left: ytPos.x, top: ytPos.y, right: 'auto', bottom: 'auto' } : undefined}
+          >
+            <div className="yt-bar" onPointerDown={ytDown} onPointerMove={ytMove} onPointerUp={ytUp} onPointerCancel={ytUp}>
+              <GripVertical size={14} />
+              <span>ลากเพื่อย้าย</span>
+              <button onClick={() => setYtMini(false)} aria-label="ขยาย"><Maximize2 size={14} /></button>
+            </div>
+            <div className="yt-frame">
+              <iframe
+                key={ytId}
+                src={`https://www.youtube-nocookie.com/embed/${ytId}?playsinline=1&rel=0`}
+                title="YouTube player"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
       <p className="sub">เปิดเพลงคู่กับหน้านี้ เลือกคีย์ กดฟังคอร์ดเทียบกับเพลงจนตรง แล้วเพิ่มเข้าลำดับคอร์ด</p>
 
       <section>
@@ -413,9 +488,8 @@ export default function App() {
         <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุด · Ctrl/⌘+Z ย้อนกลับ · Delete ลบช่องที่เลือก</p>
       </section>
 
-      <footer className="version">Cords v{__APP_VERSION__}</footer>
-
       <nav className="transport" aria-label="ควบคุมการเล่น">
+        <footer className="version">Cords v{__APP_VERSION__}</footer>
         <button className="primary play" onClick={togglePlay} disabled={!total} aria-label={playing ? 'หยุด' : 'เล่นลำดับคอร์ด'}>
           {playing ? <Square size={20} /> : <Play size={20} />}
         </button>
