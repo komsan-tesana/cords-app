@@ -56,3 +56,39 @@ export function paletteFor(key, minor) {
 export const QUALITIES = ['', 'm', '7', 'm7', 'maj7', 'sus4', 'dim']
 
 export const pitchClasses = (chord) => [...new Set(chord.notes.map((n) => n % 12))]
+
+const mod12 = (n) => ((n % 12) + 12) % 12
+
+// เลื่อนคอร์ดขึ้น/ลง n เซมิโทน (รวมโน้ตเบสของคอร์ด slash)
+export function transposeName(name, n) {
+  const { root, quality, bassPc } = splitChord(name)
+  return chordName(mod12(root + n), quality, bassPc >= 0 ? mod12(bassPc + n) : -1)
+}
+
+// ช่องคอร์ด = { n: ชื่อคอร์ด, t?: วินาทีในเพลง, b?: จำนวนจังหวะ (ปกติ 2) }
+// ท่อน = { name, rep, chords } รับข้อมูลเก่า (คอร์ดเป็นสตริง, ไม่มี rep) และไฟล์นำเข้าที่อาจผิดรูป
+export const DEFAULT_SECTIONS = () => [{ name: 'Verse', rep: 1, chords: [] }]
+export function normalizeSections(raw) {
+  if (!Array.isArray(raw) || !raw.length) return DEFAULT_SECTIONS()
+  const out = raw.filter((s) => s && typeof s === 'object').map((s) => ({
+    name: typeof s.name === 'string' ? s.name.slice(0, 40) : 'Verse',
+    rep: Math.min(4, Math.max(1, Math.round(Number(s.rep)) || 1)),
+    chords: (Array.isArray(s.chords) ? s.chords : [])
+      .map((c) => (typeof c === 'string' ? { n: c } : c))
+      .filter((c) => c && typeof c.n === 'string' && CHORD_RE.test(c.n) && NOTES.includes(c.n.match(CHORD_RE)[1]))
+      .map((c) => {
+        const o = { n: c.n }
+        if (Number.isFinite(c.t) && c.t >= 0) o.t = c.t
+        if (Number.isInteger(c.b) && c.b >= 1 && c.b <= 16 && c.b !== 2) o.b = c.b
+        return o
+      }),
+  }))
+  return out.length ? out : DEFAULT_SECTIONS()
+}
+
+// ลำดับที่เล่นจริง: กางท่อนที่ซ้ำออกมา
+export function buildPlan(sections) {
+  return sections.flatMap((s, si) =>
+    Array.from({ length: s.rep || 1 }, () => s.chords.map((c, ci) => ({ si, ci, n: c.n, b: c.b ?? 2 }))).flat(),
+  )
+}

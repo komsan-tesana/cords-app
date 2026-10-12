@@ -7,7 +7,7 @@
 }
 * { box-sizing: border-box; }
 body { font-family: system-ui, "Sarabun", "Noto Sans Thai", sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 16px 16px 0; line-height: 1.5; }
-main { max-width: 760px; margin-inline: auto; padding-bottom: 130px; }
+main { max-width: 760px; margin-inline: auto; padding-bottom: calc(var(--bar-h, 80px) + 40px); }
 h1 { font-size: 1.3rem; margin: 0 0 4px; }
 .sub { color: var(--mut); margin: 0 0 16px; font-size: .9rem; }
 section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
@@ -91,18 +91,24 @@ textarea { width: 100%; min-height: 110px; font: inherit; padding: 8px; border-r
 .yt { margin-top: 10px; }
 .yt-frame { position: relative; aspect-ratio: 16 / 9; }
 .yt-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 10px; }
+.yt-ctrl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.yt-ctrl button { min-height: 36px; padding: 4px 10px; }
+.yt-ctrl button.on { background: var(--acc-soft); border-color: var(--acc); color: var(--acc); font-weight: 600; }
+.yt-rates, .yt-ab { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .yt-bar { display: none; }
-.yt.float { position: fixed; right: 12px; bottom: 96px; z-index: 20; width: min(240px, calc(100vw - 24px)); margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); overflow: hidden; }
+.yt.float { position: fixed; right: 12px; bottom: calc(var(--bar-h, 80px) + 12px); z-index: 20; width: min(var(--yt-w, 240px), calc(100vw - 24px)); margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); overflow: hidden; }
 .yt.float .yt-bar { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 6px; height: 28px; color: var(--mut); font-size: .72rem; cursor: grab; touch-action: none; user-select: none; }
 .yt.float .yt-bar span { flex: 1; }
-.yt.float .yt-bar button { min-height: 0; width: 24px; height: 24px; padding: 0; border: none; background: none; }
+.yt.float .yt-bar button { min-height: 0; min-width: 24px; height: 24px; padding: 0 4px; border: none; background: none; font-size: .72rem; }
 .yt.float .yt-frame iframe { border-radius: 0; }
+.yt.float .yt-ctrl { margin: 0; padding: 6px; gap: 4px; }
+.yt.float .yt-ctrl button { min-height: 28px; padding: 2px 6px; font-size: .75rem; }
 
 .version { position: absolute; left: 12px; bottom: 100%; padding: 2px 6px; color: var(--mut); font-size: .75rem; }
 
 /* แถบควบคุมการเล่น */
 .transport { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
-.transport .play { width: 52px; height: 52px; border-radius: 50%; padding: 0; }
+.transport .play { height: 48px; border-radius: 999px; padding: 0 18px; font-weight: 600; }
 .now { display: flex; flex-direction: column; min-width: 96px; line-height: 1.2; }
 .now small { color: var(--mut); font-size: .72rem; }
 .now strong { font-size: 1.25rem; }
@@ -111,3 +117,10 @@ textarea { width: 100%; min-height: 110px; font: inherit; padding: 8px; border-r
 .bpmbox input { width: 64px; text-align: center; padding: 8px 4px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.songs select, .song-title { flex: 1 1 160px; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 8px; }
+.rep { min-height: 32px; padding: 2px 8px; font-size: .85rem; }
+.slot .name { flex-direction: column; gap: 0; line-height: 1.2; }
+.slot .name small { font-size: .68rem; font-weight: 400; color: var(--mut); }
+.slot.on .name small { color: inherit; opacity: .85; }
