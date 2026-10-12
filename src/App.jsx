@@ -4,17 +4,18 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Check, Copy, Download, GripVertical, Hand, Minimize2, Maximize2, Minus, Play, Plus, Square, Trash2, Undo2 } from 'lucide-react'
-import { INSTRUMENTS, playChord } from './audio.js'
-import { NOTES, QUALITIES, chordName, mkChord, paletteFor, parseChord, pitchClasses, splitChord } from './music.js'
+import { INSTRUMENTS, playChord, playClick } from './audio.js'
+import { DEFAULT_SECTIONS, NOTES, QUALITIES, buildPlan, chordName, mkChord, normalizeSections, paletteFor, parseChord, pitchClasses, splitChord, transposeName } from './music.js'
 import KeyWheel from './components/KeyWheel.jsx'
 import Keyboard from './components/Keyboard.jsx'
 import YouTubePlayer from './components/YouTubePlayer.jsx'
+import SongsPanel from './components/SongsPanel.jsx'
 
-function usePersistentState(key, initial) {
+function usePersistentState(key, initial, revive = (v) => v) {
   const [value, setValue] = useState(() => {
     try {
       const raw = localStorage.getItem(key)
-      return raw === null ? initial : JSON.parse(raw)
+      return raw === null ? initial : revive(JSON.parse(raw))
     } catch {
       return initial
     }
@@ -33,6 +34,9 @@ const OCT_CHORD = [-2, -1, 0, 1, 2]
 const OCT_BASS = [-1, 0, 1, 2]
 const octLabel = (n) => (n === 0 ? '0 (ปกติ)' : n > 0 ? `+${n}` : `${n}`)
 const SECTION_PRESETS = ['Intro', 'Verse', 'Pre-Chorus', 'Chorus', 'Bridge', 'Outro']
+const BEATS = [1, 2, 3, 4, 6, 8]
+const fmtTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
+const safeName = (t) => (t || 'cords').replace(/[\\/:*?"<>|]+/g, '').trim() || 'cords'
 const clampBpm = (n) => Math.min(200, Math.max(40, Math.round(n)))
 const qualityLabel = (q) => (q === '' ? 'maj' : q)
 
@@ -64,7 +68,7 @@ function ChordButton({ root, q, roman, hotkey, active, onPick }) {
   )
 }
 
-function Slot({ id, name, selected, playing, onSelect }) {
+function Slot({ id, name, time, beats, selected, playing, onSelect }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
     <div
@@ -75,7 +79,12 @@ function Slot({ id, name, selected, playing, onSelect }) {
       <button ref={setActivatorNodeRef} className="grip" aria-label="ลากเพื่อเรียงใหม่" {...attributes} {...listeners}>
         <GripVertical size={16} />
       </button>
-      <button className="name" onClick={onSelect}>{name}</button>
+      <button className="name" onClick={onSelect}>
+        {name}
+        {(time != null || beats !== 2) && (
+          <small>{[time != null && fmtTime(time), beats !== 2 && `×${beats}`].filter(Boolean).join(' · ')}</small>
+        )}
+      </button>
     </div>
   )
 }
@@ -90,10 +99,16 @@ export default function App() {
   const [chordOct, setChordOct] = usePersistentState('cords-chord-oct', 0)
   const [bassOct, setBassOct] = usePersistentState('cords-bass-oct', 0)
   const [autoAdd, setAutoAdd] = usePersistentState('cords-auto-add', false)
-  const [sections, setSections] = usePersistentState('cords-sections', [{ name: 'Verse', chords: [] }])
+  const [sections, setSections] = usePersistentState('cords-sections', DEFAULT_SECTIONS(), normalizeSections)
   const [cur, setCur] = useState(null) // คอร์ดที่เลือกล่าสุดจากแผง { root, q, roman }
   const [sel, setSel] = useState(null) // ช่องในลำดับที่เลือก { si, ci }
-  const [playingIdx, setPlayingIdx] = useState(-1)
+  const [playingAt, setPlayingAt] = useState(null) // { si, ci } ของช่องที่กำลังเล่น
+  const [counting, setCounting] = useState(false)
+  const [metro, setMetro] = usePersistentState('cords-metro', false)
+  const [countIn, setCountIn] = usePersistentState('cords-count-in', false)
+  const [syncVideo, setSyncVideo] = usePersistentState('cords-sync-video', false)
+  const [ytStamp, setYtStamp] = usePersistentState('cords-yt-stamp', false)
+  const [songs, setSongs] = usePersistentState('cords-songs', { current: 's1', items: { s1: { title: 'เพลงที่ 1' } } })
   const [copied, setCopied] = useState(false)
   const [ytUrl, setYtUrl] = usePersistentState('cords-yt-url', '')
   const ytId = youtubeId(ytUrl)
@@ -119,6 +134,7 @@ export default function App() {
   }
   const ytUp = () => { ytDrag.current = null }
   const timer = useRef(null)
+  const videoStarted = useRef(false)
   const idxRef = useRef(0)
   const taps = useRef([])
 
@@ -132,46 +148,97 @@ export default function App() {
   const { inKey, extra } = useMemo(() => paletteFor(key, minor), [key, minor])
   const flat = useMemo(() => sections.flatMap((s, si) => s.chords.map((_, ci) => ({ si, ci }))), [sections])
   const total = flat.length
-  const playing = playingIdx >= 0
-  const playingName = playing ? sections.flatMap((s) => s.chords)[playingIdx] : null
+  const plan = useMemo(() => buildPlan(sections), [sections])
+  const playing = !!playingAt || counting
+  const playingName = playingAt ? sections[playingAt.si]?.chords[playingAt.ci]?.n : null
+  const flags = useRef()
+  flags.current = { metro, syncVideo }
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  const stop = () => {
+  const halt = () => {
     clearTimeout(timer.current)
     timer.current = null
-    setPlayingIdx(-1)
+    setPlayingAt(null)
+    setCounting(false)
+  }
+  const stop = () => {
+    halt()
+    if (videoStarted.current) {
+      videoStarted.current = false
+      ytApi.current?.pause()
+    }
   }
   useEffect(() => stop, [])
 
   // อ่านจาก ref ทุกรอบ เพื่อให้แก้คอร์ดหรือปรับ bpm ระหว่างเล่นแล้วมีผลทันที
   const loop = () => {
-    const list = sectionsRef.current.flatMap((s) => s.chords)
+    const list = buildPlan(sectionsRef.current)
     if (!list.length) return stop()
     const i = idxRef.current % list.length
     idxRef.current = i + 1
-    setPlayingIdx(i)
-    playChord(parseChord(list[i]), optsRef.current)
-    timer.current = setTimeout(loop, (60 / optsRef.current.bpm) * 2 * 1000)
+    const e = list[i]
+    const o = optsRef.current
+    setPlayingAt({ si: e.si, ci: e.ci })
+    playChord(parseChord(e.n), { ...o, beats: e.b })
+    if (flags.current.metro) for (let k = 0; k < e.b; k++) playClick(k === 0, (60 / o.bpm) * k)
+    timer.current = setTimeout(loop, (60 / o.bpm) * e.b * 1000)
   }
   const play = () => {
     stop()
-    const from = sel ? flat.findIndex((f) => f.si === sel.si && f.ci === sel.ci) : 0
-    idxRef.current = Math.max(from, 0)
-    loop()
+    const start = sel ? Math.max(plan.findIndex((e) => e.si === sel.si && e.ci === sel.ci), 0) : 0
+    idxRef.current = start
+    const begin = () => {
+      timer.current = null
+      setCounting(false)
+      const f = plan[start]
+      const t = f && sectionsRef.current[f.si]?.chords[f.ci]?.t
+      if (flags.current.syncVideo && ytApi.current) {
+        if (t != null) ytApi.current.seek(t)
+        ytApi.current.play()
+        videoStarted.current = true
+      }
+      loop()
+    }
+    if (countIn) {
+      const beat = 60 / optsRef.current.bpm
+      setCounting(true)
+      for (let k = 0; k < 4; k++) playClick(k === 0, beat * k)
+      timer.current = setTimeout(begin, beat * 4 * 1000)
+    } else begin()
   }
   const togglePlay = () => (playing ? stop() : play())
 
   const preview = (chord, override = {}) => playChord(chord, { ...optsRef.current, ...override })
 
   const addChord = (name) => {
-    setSections((ss) => ss.map((s, i) => (i === ss.length - 1 ? { ...s, chords: [...s.chords, name] } : s)))
+    const c = { n: name }
+    const t = ytStamp ? ytApi.current?.getTime() : null
+    if (t != null) c.t = Math.round(t * 10) / 10
+    setSections((ss) => ss.map((s, i) => (i === ss.length - 1 ? { ...s, chords: [...s.chords, c] } : s)))
     setSel(null)
   }
-  const setChordAt = (si, ci, name) =>
-    setSections((ss) => ss.map((s, i) => (i === si ? { ...s, chords: s.chords.map((c, j) => (j === ci ? name : c)) } : s)))
+  // patch ที่เป็น undefined = ลบฟิลด์นั้นออก
+  const patchChord = (si, ci, patch) =>
+    setSections((ss) =>
+      ss.map((s, i) =>
+        i === si
+          ? {
+              ...s,
+              chords: s.chords.map((c, j) => {
+                if (j !== ci) return c
+                const n = { ...c, ...patch }
+                Object.keys(n).forEach((k) => n[k] === undefined && delete n[k])
+                return n
+              }),
+            }
+          : s,
+      ),
+    )
+  const setChordAt = (si, ci, name) => patchChord(si, ci, { n: name })
+  const setRep = (si, rep) => setSections((ss) => ss.map((s, i) => (i === si ? { ...s, rep } : s)))
   const removeAt = (si, ci) => {
     setSections((ss) => ss.map((s, i) => (i === si ? { ...s, chords: s.chords.filter((_, j) => j !== ci) } : s)))
     setSel(null)
@@ -180,7 +247,7 @@ export default function App() {
     setSections((ss) => {
       const last = ss[ss.length - 1]
       return last.chords.length
-        ? [...ss, { name, chords: [] }]
+        ? [...ss, { name, rep: 1, chords: [] }]
         : ss.map((s, i) => (i === ss.length - 1 ? { ...s, name } : s))
     })
   const undo = () => {
@@ -195,8 +262,13 @@ export default function App() {
     if (confirm('ล้างทั้งหมดหรือไม่?')) {
       stop()
       setSel(null)
-      setSections([{ name: 'Verse', chords: [] }])
+      setSections(DEFAULT_SECTIONS())
     }
+  }
+  const transpose = (n) => {
+    setSections((ss) => ss.map((s) => ({ ...s, chords: s.chords.map((c) => ({ ...c, n: transposeName(c.n, n) })) })))
+    setKey((k) => (((k + n) % 12) + 12) % 12)
+    setCur(null)
   }
 
   const pick = (root, q, roman) => {
@@ -209,10 +281,17 @@ export default function App() {
   const replaceSel = () => curName && sel && setChordAt(sel.si, sel.ci, curName)
 
   const selectSlot = (si, ci) => {
+    const c = sections[si].chords[ci]
     setSel({ si, ci })
-    preview(parseChord(sections[si].chords[ci]))
+    preview(parseChord(c.n))
+    if (c.t != null) ytApi.current?.seek(c.t)
   }
-  const selName = sel ? sections[sel.si]?.chords[sel.ci] : null
+  const selChord = sel ? sections[sel.si]?.chords[sel.ci] : null
+  const selName = selChord?.n ?? null
+  const stampSel = () => {
+    const t = ytApi.current?.getTime()
+    if (t != null) patchChord(sel.si, sel.ci, { t: Math.round(t * 10) / 10 })
+  }
   const selParts = selName ? splitChord(selName) : null
 
   const onDragEnd = ({ active, over }) => {
@@ -249,10 +328,12 @@ export default function App() {
     if (s) rm(s.si, s.ci)
   })
 
+  const title = songs.items[songs.current]?.title ?? ''
   const exportText =
+    (title ? `${title}\n\n` : '') +
     sections
       .filter((s) => s.chords.length)
-      .map((s) => `${s.name}: | ${s.chords.join(' | ')} |`)
+      .map((s) => `${s.name}${s.rep > 1 ? ` ×${s.rep}` : ''}: | ${s.chords.map((c) => c.n).join(' | ')} |`)
       .join('\n') + `\n\nคีย์: ${NOTES[key]} ${minor ? 'ไมเนอร์' : 'เมเจอร์'}, ${bpmNum} bpm`
 
   const copy = async () => {
@@ -267,9 +348,62 @@ export default function App() {
   const download = () => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([exportText], { type: 'text/plain' }))
-    a.download = 'mercury-heaven-chords.txt'
+    a.download = `${safeName(title)}-chords.txt`
     a.click()
     URL.revokeObjectURL(a.href)
+  }
+
+  const snapshot = () => ({ key, minor, bpm: bpmNum, sections, ytUrl })
+  const applySong = (d) => {
+    stop()
+    setSel(null)
+    setCur(null)
+    setKey(Number.isInteger(d.key) ? ((d.key % 12) + 12) % 12 : 0)
+    setMinor(!!d.minor)
+    setBpm(clampBpm(Number(d.bpm) || 80))
+    setSections(normalizeSections(d.sections))
+    setYtUrl(typeof d.ytUrl === 'string' ? d.ytUrl : '')
+  }
+  const withCurrentSaved = (s) => ({ ...s.items, [s.current]: { ...s.items[s.current], data: snapshot() } })
+  const addSong = (title, data) => {
+    const id = 's' + Date.now().toString(36)
+    setSongs((s) => ({ current: id, items: { ...withCurrentSaved(s), [id]: { title, data } } }))
+    applySong(data)
+  }
+  const switchSong = (id) => {
+    if (id === songs.current || !songs.items[id]) return
+    setSongs((s) => ({ current: id, items: withCurrentSaved(s) }))
+    applySong(songs.items[id].data ?? {})
+  }
+  const newSong = () => addSong(`เพลงที่ ${Object.keys(songs.items).length + 1}`, {})
+  const duplicateSong = () => addSong(`${title || 'เพลง'} (สำเนา)`, snapshot())
+  const deleteSong = () => {
+    const ids = Object.keys(songs.items)
+    if (ids.length < 2 || !confirm(`ลบเพลง "${title}" หรือไม่?`)) return
+    const rest = { ...songs.items }
+    delete rest[songs.current]
+    const next = Object.keys(rest)[0]
+    setSongs({ current: next, items: rest })
+    applySong(rest[next].data ?? {})
+  }
+  const renameSong = (t) => setSongs((s) => ({ ...s, items: { ...s.items, [s.current]: { ...s.items[s.current], title: t } } }))
+  const exportSong = () => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'cords', title, ...snapshot() }, null, 2)], { type: 'application/json' }))
+    a.download = `${safeName(title)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  const importSong = async (file) => {
+    try {
+      const d = JSON.parse(await file.text())
+      if (!d || typeof d !== 'object' || !Array.isArray(d.sections)) throw new Error('bad file')
+      addSong(typeof d.title === 'string' && d.title ? d.title.slice(0, 60) : file.name.replace(/\.json$/i, ''), {
+        key: d.key, minor: d.minor, bpm: d.bpm, sections: normalizeSections(d.sections), ytUrl: d.ytUrl,
+      })
+    } catch {
+      alert('ไฟล์ไม่ถูกต้อง นำเข้าไม่ได้')
+    }
   }
 
   const demo = (patch) => preview(mkChord(key, minor ? 'm' : '', -1), patch)
@@ -304,6 +438,11 @@ export default function App() {
           </div>
         )}
       </section>
+
+      <SongsPanel
+        songs={songs} onSwitch={switchSong} onNew={newSong} onDuplicate={duplicateSong}
+        onDelete={deleteSong} onRename={renameSong} onExport={exportSong} onImport={importSong}
+      />
 
       <p className="sub">เปิดเพลงคู่กับหน้านี้ เลือกคีย์ กดฟังคอร์ดเทียบกับเพลงจนตรง แล้วเพิ่มเข้าลำดับคอร์ด</p>
 
@@ -415,16 +554,23 @@ export default function App() {
           <div className="prog">
             {sections.map((s, si) => (
               <div className="sec" key={si}>
-                <div className="bar">{s.name}:</div>
+                <div className="bar">
+                  {s.name}:
+                  <select className="rep" value={s.rep} onChange={(e) => setRep(si, +e.target.value)} aria-label={`จำนวนรอบของ ${s.name}`}>
+                    {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n === 1 ? 'ไม่ซ้ำ' : `ซ้ำ ×${n}`}</option>)}
+                  </select>
+                </div>
                 <SortableContext items={s.chords.map((_, ci) => `${si}:${ci}`)} strategy={horizontalListSortingStrategy}>
                   <div className="slots">
                     {s.chords.map((c, ci) => (
                       <Slot
                         key={`${si}:${ci}`}
                         id={`${si}:${ci}`}
-                        name={c}
+                        name={c.n}
+                        time={c.t}
+                        beats={c.b ?? 2}
                         selected={sel?.si === si && sel?.ci === ci}
-                        playing={flat.findIndex((f) => f.si === si && f.ci === ci) === playingIdx}
+                        playing={playingAt?.si === si && playingAt?.ci === ci}
                         onSelect={() => selectSlot(si, ci)}
                       />
                     ))}
@@ -452,6 +598,23 @@ export default function App() {
               <button className="danger" onClick={() => removeAt(sel.si, sel.ci)}><Trash2 size={16} /> ลบ</button>
               <button onClick={() => setSel(null)}>เสร็จ</button>
             </div>
+            <div className="chips" aria-label="จำนวนจังหวะ">
+              <span className="hint">จังหวะ:</span>
+              {BEATS.map((b) => (
+                <button
+                  key={b} className={'chip' + ((selChord.b ?? 2) === b ? ' on' : '')}
+                  onClick={() => patchChord(sel.si, sel.ci, { b: b === 2 ? undefined : b })}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+            <div className="chips" aria-label="เวลาในเพลง">
+              <span className="hint">เวลาในเพลง: {selChord.t != null ? fmtTime(selChord.t) : '–'}</span>
+              <button onClick={stampSel} disabled={!ytId}>ปักเวลาปัจจุบัน</button>
+              <button onClick={() => ytApi.current?.seek(selChord.t)} disabled={selChord.t == null || !ytId}>ไปที่เวลานี้</button>
+              <button onClick={() => patchChord(sel.si, sel.ci, { t: undefined })} disabled={selChord.t == null}>ลบเวลา</button>
+            </div>
             <div className="chips" aria-label="ชนิดคอร์ด">
               {QUALITIES.map((q) => (
                 <button
@@ -471,6 +634,17 @@ export default function App() {
         )}
         <div className="row">
           <button onClick={clearAll}>ล้างทั้งหมด</button>
+          <span className="hint">เลื่อนคีย์ทั้งเพลง ({NOTES[key]}{minor ? 'm' : ''}):</span>
+          <button onClick={() => transpose(-1)} disabled={!total} aria-label="ลดครึ่งเสียง"><Minus size={16} /> ½</button>
+          <button onClick={() => transpose(1)} disabled={!total} aria-label="เพิ่มครึ่งเสียง"><Plus size={16} /> ½</button>
+        </div>
+        <div className="chips">
+          <label className="check"><input type="checkbox" checked={metro} onChange={(e) => setMetro(e.target.checked)} /> เมโทรนอม</label>
+          <label className="check"><input type="checkbox" checked={countIn} onChange={(e) => setCountIn(e.target.checked)} /> นับเข้า 4 จังหวะ</label>
+          <label className="check" title="เริ่มวิดีโอพร้อมคอร์ด โดยเริ่มที่เวลาของช่องแรกที่เล่น (ถ้าปักเวลาไว้)">
+            <input type="checkbox" checked={syncVideo} onChange={(e) => setSyncVideo(e.target.checked)} /> เล่นวิดีโอพร้อมกัน
+          </label>
+          <label className="check"><input type="checkbox" checked={ytStamp} onChange={(e) => setYtStamp(e.target.checked)} /> ปักเวลาอัตโนมัติเมื่อเพิ่มคอร์ด</label>
         </div>
       </section>
 
@@ -490,7 +664,7 @@ export default function App() {
           {playing ? <Square size={20} /> : <Play size={20} />}
         </button>
         <div className="now" aria-live="polite">
-          <small>{playing ? 'กำลังเล่น' : total ? `${total} คอร์ด${sel ? ' · เริ่มจากช่องที่เลือก' : ''}` : 'ยังไม่มีคอร์ด'}</small>
+          <small>{counting ? 'นับเข้า…' : playing ? 'กำลังเล่น' : total ? `${total} คอร์ด${sel ? ' · เริ่มจากช่องที่เลือก' : ''}` : 'ยังไม่มีคอร์ด'}</small>
           <strong>{playingName ?? '–'}</strong>
         </div>
         <div className="bpmbox">

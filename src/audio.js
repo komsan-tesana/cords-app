@@ -65,11 +65,26 @@ function bassTone(ac, freq, t, dur) {
 }
 
 // chord = { notes: [midi], bass: midi }
-export function playChord(chord, { instrument, bpm, bassOn, chordOct, bassOct }) {
+export function playChord(chord, { instrument, bpm, bassOn, chordOct, bassOct, beats = 2 }) {
   const ac = getCtx()
   const p = INSTRUMENTS[instrument]
-  const dur = (60 / bpm) * 2
+  const dur = (60 / bpm) * beats
   const t0 = ac.currentTime
   chord.notes.forEach((m, k) => tone(ac, freqOf(m + 12 * chordOct), t0 + k * p.strum, dur * 0.9, p))
   if (bassOn) bassTone(ac, freqOf(chord.bass + 12 * bassOct), t0, dur * 0.95)
+}
+
+// เสียงคลิกเมโทรนอม; delay = วินาทีนับจากตอนนี้, accent = จังหวะแรก
+export function playClick(accent, delay = 0) {
+  const ac = getCtx()
+  const t = ac.currentTime + delay
+  const o = ac.createOscillator()
+  const g = ac.createGain()
+  o.type = 'square'
+  o.frequency.value = accent ? 1600 : 1100
+  g.gain.setValueAtTime(accent ? 0.12 : 0.07, t)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05)
+  o.connect(g).connect(ac.destination)
+  o.start(t)
+  o.stop(t + 0.06)
 }

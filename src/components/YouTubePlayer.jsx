@@ -18,7 +18,7 @@ function loadApi() {
 }
 
 // เครื่องเล่น YouTube ผ่าน IFrame API: ปรับความเร็ว, วนลูปช่วง A–B, ถอย 5 วินาที
-// apiRef.current = { toggle, back } ให้ App เรียกจากคีย์ลัด
+// apiRef.current = { toggle, back, getTime, seek, play, pause } ให้ App เรียก
 export default function YouTubePlayer({ videoId, apiRef }) {
   const wrap = useRef(null)
   const player = useRef(null)
@@ -85,7 +85,14 @@ export default function YouTubePlayer({ videoId, apiRef }) {
     else player.current.playVideo()
   }
   const back = () => ready && player.current.seekTo(Math.max(0, player.current.getCurrentTime() - 5), true)
-  useImperativeHandle(apiRef, () => ({ toggle, back }))
+  useImperativeHandle(apiRef, () => ({
+    toggle,
+    back,
+    getTime: () => (ready ? player.current.getCurrentTime() : null),
+    seek: (t) => ready && player.current.seekTo(t, true),
+    play: () => ready && player.current.playVideo(),
+    pause: () => ready && player.current.pauseVideo(),
+  }))
 
   const pickRate = (r) => {
     setRate(r)
