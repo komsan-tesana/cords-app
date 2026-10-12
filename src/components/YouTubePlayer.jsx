@@ -114,7 +114,7 @@ export default function YouTubePlayer({ videoId, apiRef }) {
       <div className="yt-frame" ref={wrap} />
       <div className="yt-ctrl">
         <button onClick={toggle} disabled={!ready} aria-label={playing ? 'หยุดวิดีโอ' : 'เล่นวิดีโอ'} title="เล่น/หยุดวิดีโอ (K)">
-          {playing ? <Pause size={16} /> : <Play size={16} />}
+          {playing ? <Pause size={16} /> : <Play size={16} />} วิดีโอ
         </button>
         <button onClick={back} disabled={!ready} aria-label="ถอย 5 วินาที" title="ถอย 5 วินาที (J)"><RotateCcw size={16} /> 5s</button>
         <span className="yt-rates" role="group" aria-label="ความเร็ว">

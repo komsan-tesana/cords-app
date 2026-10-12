@@ -3,7 +3,7 @@ import { useHotkeys } from 'react-hotkeys-hook'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Check, Copy, Download, GripVertical, Hand, Minimize2, Maximize2, Minus, Play, Plus, Square, Trash2, Undo2 } from 'lucide-react'
+import { Check, Copy, Download, GripVertical, Hand, Minimize2, Maximize2, Minus, Play, Plus, Redo2, Square, Trash2, Undo2 } from 'lucide-react'
 import { INSTRUMENTS, playChord, playClick } from './audio.js'
 import { DEFAULT_SECTIONS, NOTES, QUALITIES, buildPlan, chordName, mkChord, normalizeSections, paletteFor, parseChord, pitchClasses, splitChord, transposeName } from './music.js'
 import KeyWheel from './components/KeyWheel.jsx'
@@ -107,6 +107,7 @@ export default function App() {
   const [metro, setMetro] = usePersistentState('cords-metro', false)
   const [countIn, setCountIn] = usePersistentState('cords-count-in', false)
   const [syncVideo, setSyncVideo] = usePersistentState('cords-sync-video', false)
+  const [exportFmt, setExportFmt] = usePersistentState('cords-export-fmt', 'text')
   const [ytStamp, setYtStamp] = usePersistentState('cords-yt-stamp', false)
   const [songs, setSongs] = usePersistentState('cords-songs', { current: 's1', items: { s1: { title: 'เพลงที่ 1' } } })
   const [copied, setCopied] = useState(false)
@@ -116,6 +117,17 @@ export default function App() {
   const [ytPos, setYtPos] = usePersistentState('cords-yt-pos', null) // ตำแหน่งจอเล็ก { x, y } (px จากมุมซ้ายบน)
   const ytBox = useRef(null)
   const ytApi = useRef(null)
+  const bar = useRef(null)
+  const [ytSize, setYtSize] = usePersistentState('cords-yt-size', 1) // 0 เล็ก, 1 กลาง, 2 ใหญ่
+  const YT_W = [160, 240, 340]
+  // ให้จอเล็กลอยอยู่เหนือแถบควบคุมเสมอ แม้แถบจะขึ้นบรรทัดใหม่บนมือถือ
+  useEffect(() => {
+    const set = () => document.documentElement.style.setProperty('--bar-h', `${bar.current?.offsetHeight ?? 80}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(bar.current)
+    return () => ro.disconnect()
+  }, [])
   const ytDrag = useRef(null)
   const ytDown = (e) => {
     if (e.target.closest('button')) return
@@ -250,14 +262,34 @@ export default function App() {
         ? [...ss, { name, rep: 1, chords: [] }]
         : ss.map((s, i) => (i === ss.length - 1 ? { ...s, name } : s))
     })
-  const undo = () => {
+  // ประวัติการแก้ลำดับคอร์ด (รวมคีย์ ตอน transpose) สำหรับ undo/redo
+  const hist = useRef({ past: [], future: [], prev: { sections, key }, skip: false })
+  const keyRef = useRef(key)
+  keyRef.current = key
+  useEffect(() => {
+    const h = hist.current
+    if (h.skip) h.skip = false
+    else if (h.prev.sections !== sections) {
+      h.past.push(h.prev)
+      if (h.past.length > 100) h.past.shift()
+      h.future = []
+    }
+    h.prev = { sections, key: keyRef.current }
+  }, [sections])
+  useEffect(() => { hist.current.prev = { ...hist.current.prev, key } }, [key])
+  const restore = (from, to) => {
+    const h = hist.current
+    const e = h[from].pop()
+    if (!e) return
+    h[to].push({ sections: sectionsRef.current, key: keyRef.current })
+    h.skip = true
     setSel(null)
-    setSections((ss) => {
-      const last = ss[ss.length - 1]
-      if (last.chords.length) return ss.map((s, i) => (i === ss.length - 1 ? { ...s, chords: s.chords.slice(0, -1) } : s))
-      return ss.length > 1 ? ss.slice(0, -1) : ss
-    })
+    setCur(null)
+    setSections(e.sections)
+    setKey(e.key)
   }
+  const undo = () => restore('past', 'future')
+  const redo = () => restore('future', 'past')
   const clearAll = () => {
     if (confirm('ล้างทั้งหมดหรือไม่?')) {
       stop()
@@ -313,7 +345,7 @@ export default function App() {
   }
 
   const live = useRef()
-  live.current = { pick, togglePlay, undo, addCur, inKey, sel, removeAt }
+  live.current = { pick, togglePlay, undo, redo, addCur, inKey, sel, removeAt }
   useHotkeys('1,2,3,4,5,6,7', (e) => {
     const c = live.current.inKey[Number(e.key) - 1]
     if (c) live.current.pick(c.root, c.q, c.roman)
@@ -323,18 +355,27 @@ export default function App() {
   useHotkeys('j', () => ytApi.current?.back())
   useHotkeys('enter', () => live.current.addCur())
   useHotkeys('mod+z', () => live.current.undo(), { preventDefault: true })
+  useHotkeys('mod+shift+z,mod+y', () => live.current.redo(), { preventDefault: true })
   useHotkeys('delete,backspace', () => {
     const { sel: s, removeAt: rm } = live.current
     if (s) rm(s.si, s.ci)
   })
 
   const title = songs.items[songs.current]?.title ?? ''
+  const filled = sections.filter((s) => s.chords.length)
+  const keyLabel = `${NOTES[key]}${minor ? 'm' : ''}`
   const exportText =
-    (title ? `${title}\n\n` : '') +
-    sections
-      .filter((s) => s.chords.length)
-      .map((s) => `${s.name}${s.rep > 1 ? ` ×${s.rep}` : ''}: | ${s.chords.map((c) => c.n).join(' | ')} |`)
-      .join('\n') + `\n\nคีย์: ${NOTES[key]} ${minor ? 'ไมเนอร์' : 'เมเจอร์'}, ${bpmNum} bpm`
+    exportFmt === 'chordpro'
+      ? [
+          title && `{title: ${title}}`,
+          `{key: ${keyLabel}}`,
+          `{tempo: ${bpmNum}}`,
+          '',
+          ...filled.flatMap((s) => [`{comment: ${s.name}${s.rep > 1 ? ` ×${s.rep}` : ''}}`, s.chords.map((c) => `[${c.n}]`).join(' '), '']),
+        ].filter((l, i, a) => l !== false && l !== '' || (l === '' && i > 0 && a[i - 1] !== '')).join('\n').trim()
+      : (title ? `${title}\n\n` : '') +
+        filled.map((s) => `${s.name}${s.rep > 1 ? ` ×${s.rep}` : ''}: | ${s.chords.map((c) => c.n).join(' | ')} |`).join('\n') +
+        `\n\nคีย์: ${NOTES[key]} ${minor ? 'ไมเนอร์' : 'เมเจอร์'}, ${bpmNum} bpm`
 
   const copy = async () => {
     try {
@@ -348,7 +389,7 @@ export default function App() {
   const download = () => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([exportText], { type: 'text/plain' }))
-    a.download = `${safeName(title)}-chords.txt`
+    a.download = `${safeName(title)}-chords.${exportFmt === 'chordpro' ? 'cho' : 'txt'}`
     a.click()
     URL.revokeObjectURL(a.href)
   }
@@ -358,6 +399,9 @@ export default function App() {
     stop()
     setSel(null)
     setCur(null)
+    hist.current.past = []
+    hist.current.future = []
+    hist.current.skip = true
     setKey(Number.isInteger(d.key) ? ((d.key % 12) + 12) % 12 : 0)
     setMinor(!!d.minor)
     setBpm(clampBpm(Number(d.bpm) || 80))
@@ -427,11 +471,12 @@ export default function App() {
           <div
             ref={ytBox}
             className={'yt' + (ytMini ? ' float' : '')}
-            style={ytMini && ytPos ? { left: ytPos.x, top: ytPos.y, right: 'auto', bottom: 'auto' } : undefined}
+            style={ytMini ? { '--yt-w': `${YT_W[ytSize] ?? 240}px`, ...(ytPos ? { left: `min(${ytPos.x}px, calc(100vw - var(--yt-w)))`, top: `min(${ytPos.y}px, calc(100vh - 160px))`, right: 'auto', bottom: 'auto' } : {}) } : undefined}
           >
             <div className="yt-bar" onPointerDown={ytDown} onPointerMove={ytMove} onPointerUp={ytUp} onPointerCancel={ytUp}>
               <GripVertical size={14} />
               <span>ลากเพื่อย้าย</span>
+              <button onClick={() => setYtSize((ytSize + 1) % YT_W.length)} aria-label="เปลี่ยนขนาดจอเล็ก" title="เปลี่ยนขนาด">{['S', 'M', 'L'][ytSize]}</button>
               <button onClick={() => setYtMini(false)} aria-label="ขยาย"><Maximize2 size={14} /></button>
             </div>
             <YouTubePlayer videoId={ytId} apiRef={ytApi} />
@@ -650,18 +695,22 @@ export default function App() {
 
       <section>
         <h2>4. รายการคอร์ดของคุณ</h2>
+        <div className="seg" role="radiogroup" aria-label="รูปแบบ">
+          <button role="radio" aria-checked={exportFmt === 'text'} className={exportFmt === 'text' ? 'on' : ''} onClick={() => setExportFmt('text')}>ข้อความ</button>
+          <button role="radio" aria-checked={exportFmt === 'chordpro'} className={exportFmt === 'chordpro' ? 'on' : ''} onClick={() => setExportFmt('chordpro')}>ChordPro</button>
+        </div>
         <textarea readOnly value={exportText} />
         <div className="row">
           <button onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}</button>
-          <button onClick={download}><Download size={16} /> ดาวน์โหลด .txt</button>
+          <button onClick={download}><Download size={16} /> ดาวน์โหลด .{exportFmt === 'chordpro' ? 'cho' : 'txt'}</button>
         </div>
-        <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุดคอร์ด · K เล่น/หยุดวิดีโอ · J ถอย 5 วินาที · Ctrl/⌘+Z ย้อนกลับ · Delete ลบช่องที่เลือก</p>
+        <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุดคอร์ด · K เล่น/หยุดวิดีโอ · J ถอย 5 วินาที · Ctrl/⌘+Z ย้อนกลับ · Ctrl/⌘+Shift+Z ทำซ้ำ · Delete ลบช่องที่เลือก</p>
       </section>
 
-      <nav className="transport" aria-label="ควบคุมการเล่น">
+      <nav ref={bar} className="transport" aria-label="ควบคุมการเล่น">
         <footer className="version">Cords v{__APP_VERSION__}</footer>
-        <button className="primary play" onClick={togglePlay} disabled={!total} aria-label={playing ? 'หยุด' : 'เล่นลำดับคอร์ด'}>
-          {playing ? <Square size={20} /> : <Play size={20} />}
+        <button className="primary play" onClick={togglePlay} disabled={!total} aria-label={playing ? 'หยุดเล่นคอร์ด' : 'เล่นลำดับคอร์ด'} title="เล่น/หยุดลำดับคอร์ดของแอป (Space) · วิดีโอ YouTube คุมที่ปุ่มใต้วิดีโอ (K)">
+          {playing ? <Square size={18} /> : <Play size={18} />} {playing ? 'หยุด' : 'เล่นคอร์ด'}
         </button>
         <div className="now" aria-live="polite">
           <small>{counting ? 'นับเข้า…' : playing ? 'กำลังเล่น' : total ? `${total} คอร์ด${sel ? ' · เริ่มจากช่องที่เลือก' : ''}` : 'ยังไม่มีคอร์ด'}</small>
@@ -677,7 +726,8 @@ export default function App() {
           <button aria-label="เพิ่ม bpm" onClick={() => setBpm(clampBpm(bpmNum + 5))}><Plus size={16} /></button>
         </div>
         <button onClick={tapTempo} title="แตะตามจังหวะเพลงเพื่อหา bpm"><Hand size={16} /> Tap</button>
-        <button onClick={undo} aria-label="ย้อนกลับ"><Undo2 size={16} /></button>
+        <button onClick={undo} aria-label="ย้อนกลับ" title="ย้อนกลับ (Ctrl/⌘+Z)"><Undo2 size={16} /></button>
+        <button onClick={redo} aria-label="ทำซ้ำ" title="ทำซ้ำ (Ctrl/⌘+Shift+Z)"><Redo2 size={16} /></button>
       </nav>
     </main>
   )
