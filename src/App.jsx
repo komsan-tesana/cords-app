@@ -8,6 +8,7 @@ import { INSTRUMENTS, playChord } from './audio.js'
 import { NOTES, QUALITIES, chordName, mkChord, paletteFor, parseChord, pitchClasses, splitChord } from './music.js'
 import KeyWheel from './components/KeyWheel.jsx'
 import Keyboard from './components/Keyboard.jsx'
+import YouTubePlayer from './components/YouTubePlayer.jsx'
 
 function usePersistentState(key, initial) {
   const [value, setValue] = useState(() => {
@@ -99,6 +100,7 @@ export default function App() {
   const [ytMini, setYtMini] = usePersistentState('cords-yt-mini', false)
   const [ytPos, setYtPos] = usePersistentState('cords-yt-pos', null) // ตำแหน่งจอเล็ก { x, y } (px จากมุมซ้ายบน)
   const ytBox = useRef(null)
+  const ytApi = useRef(null)
   const ytDrag = useRef(null)
   const ytDown = (e) => {
     if (e.target.closest('button')) return
@@ -238,6 +240,8 @@ export default function App() {
     if (c) live.current.pick(c.root, c.q, c.roman)
   })
   useHotkeys('space', () => live.current.togglePlay(), { preventDefault: true })
+  useHotkeys('k', () => ytApi.current?.toggle())
+  useHotkeys('j', () => ytApi.current?.back())
   useHotkeys('enter', () => live.current.addCur())
   useHotkeys('mod+z', () => live.current.undo(), { preventDefault: true })
   useHotkeys('delete,backspace', () => {
@@ -296,15 +300,7 @@ export default function App() {
               <span>ลากเพื่อย้าย</span>
               <button onClick={() => setYtMini(false)} aria-label="ขยาย"><Maximize2 size={14} /></button>
             </div>
-            <div className="yt-frame">
-              <iframe
-                key={ytId}
-                src={`https://www.youtube-nocookie.com/embed/${ytId}?playsinline=1&rel=0`}
-                title="YouTube player"
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
+            <YouTubePlayer videoId={ytId} apiRef={ytApi} />
           </div>
         )}
       </section>
@@ -485,7 +481,7 @@ export default function App() {
           <button onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}</button>
           <button onClick={download}><Download size={16} /> ดาวน์โหลด .txt</button>
         </div>
-        <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุด · Ctrl/⌘+Z ย้อนกลับ · Delete ลบช่องที่เลือก</p>
+        <p className="hint">คีย์ลัด: 1–7 เล่นคอร์ด · Enter เพิ่มคอร์ด · Space เล่น/หยุดคอร์ด · K เล่น/หยุดวิดีโอ · J ถอย 5 วินาที · Ctrl/⌘+Z ย้อนกลับ · Delete ลบช่องที่เลือก</p>
       </section>
 
       <nav className="transport" aria-label="ควบคุมการเล่น">

@@ -91,12 +91,18 @@ textarea { width: 100%; min-height: 110px; font: inherit; padding: 8px; border-r
 .yt { margin-top: 10px; }
 .yt-frame { position: relative; aspect-ratio: 16 / 9; }
 .yt-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 10px; }
+.yt-ctrl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.yt-ctrl button { min-height: 36px; padding: 4px 10px; }
+.yt-ctrl button.on { background: var(--acc-soft); border-color: var(--acc); color: var(--acc); font-weight: 600; }
+.yt-rates, .yt-ab { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .yt-bar { display: none; }
 .yt.float { position: fixed; right: 12px; bottom: 96px; z-index: 20; width: min(240px, calc(100vw - 24px)); margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); overflow: hidden; }
 .yt.float .yt-bar { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 6px; height: 28px; color: var(--mut); font-size: .72rem; cursor: grab; touch-action: none; user-select: none; }
 .yt.float .yt-bar span { flex: 1; }
 .yt.float .yt-bar button { min-height: 0; width: 24px; height: 24px; padding: 0; border: none; background: none; }
 .yt.float .yt-frame iframe { border-radius: 0; }
+.yt.float .yt-ctrl { margin: 0; padding: 6px; gap: 4px; }
+.yt.float .yt-ctrl button { min-height: 28px; padding: 2px 6px; font-size: .75rem; }
 
 .version { position: absolute; left: 12px; bottom: 100%; padding: 2px 6px; color: var(--mut); font-size: .75rem; }
 
