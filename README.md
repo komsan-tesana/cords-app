@@ -14,5 +14,5 @@ npm run dev
 2. ที่ GitHub: Settings → Pages → Source เลือก **Deploy from a branch** → Branch `main` โฟลเดอร์ `/docs`
 3. เว็บจะอยู่ที่ https://komsan-tesana.github.io/cords-app/
 
-ทุกครั้งที่แก้โค้ด ให้ commit โค้ดก่อน แล้วรัน `npm run deploy` (build + commit + push `docs/` ขึ้น main ให้อัตโนมัติ)
+ทุกครั้งที่แก้โค้ด ให้ทำงานและ commit บน branch `develop` แล้วรัน `npm run deploy` (จาก develop) สคริปต์จะ push develop → merge เข้า `main` → build `docs/` → commit + push `main` แล้วกลับมาที่ develop ให้อัตโนมัติ
 ถ้าเปลี่ยนชื่อ repo ให้แก้ `base` ใน `vite.config.js` ให้ตรงกัน

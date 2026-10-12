@@ -51,3 +51,8 @@ export function paletteFor(key, minor) {
   const extra = (minor ? MIN_EXTRA : MAJ_EXTRA).map(([s, q, roman]) => ({ root: (key + s) % 12, q, roman }))
   return { inKey, extra }
 }
+
+// ชนิดคอร์ดที่เลือกได้ในหน้าจอแก้ไข
+export const QUALITIES = ['', 'm', '7', 'm7', 'maj7', 'sus4', 'dim']
+
+export const pitchClasses = (chord) => [...new Set(chord.notes.map((n) => n % 12))]
